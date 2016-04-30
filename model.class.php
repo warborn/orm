@@ -44,8 +44,13 @@ class Model {
   }
 
   public static function find($id = 0) {
-    $result_array = static::find_by_sql("SELECT * FROM " .self::get_table_name(). " WHERE ".self::get_primary_key()."={$id} LIMIT 1");
+    $result_array = static::find_by_sql("SELECT * FROM " .self::get_table_name(). " WHERE ".self::get_primary_key()."='{$id}' LIMIT 1");
     return !empty($result_array) ? array_shift($result_array) : null;
+  }
+
+  public static function find_by($column, $value) {
+    $result_array = static::find_by_sql("SELECT * FROM ".self::get_table_name(). " WHERE {$column} = '{$value}'");
+    return !empty($result_array) ? $result_array : [];
   }
 
   public static function find_by_sql($sql="") {
@@ -55,6 +60,25 @@ class Model {
       $object_array[] = static::instantiate($row);
     }
     return $object_array;
+  }
+
+  // Handle find_by_attribute methods
+
+  public static function __callStatic($method_name, $args) {
+    $class_name = get_called_class();
+
+    // Extract the field name from the method name
+    $array = split('_', $method_name);
+    array_splice($array, 0, 2);
+    $field =  implode('_', $array);
+    
+    array_unshift($args, $field);
+
+    if(substr($method_name, 0, 7) === 'find_by') {
+      return call_user_func_array(array($class_name, 'find_by'), $args);
+    }
+
+    throw new \Exception(sprintf('There is no static method named "%s" in the class "%s".', $method_name, $class_name));
   }
 
   private static function instantiate($record) {
