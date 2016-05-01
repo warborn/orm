@@ -180,6 +180,21 @@ class Model {
     }
   }
 
+  private function object_modifiable_fields() {
+    $table_fields = array();
+    $r = new ReflectionObject($this);
+    foreach ($r->getProperties(ReflectionProperty::IS_PUBLIC) AS $key => $value)
+    {
+      $key = $value->getName();
+      $value = $value->getValue($this);
+
+      if(! is_object($value) && $key !== 'id') {
+        $table_fields[$key] =  $value;
+      }
+    }
+    return $table_fields;
+  }
+
 }
 
 ?>
