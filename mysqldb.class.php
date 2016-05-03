@@ -27,6 +27,14 @@ class MySQLDB {
     }
   }
 
+  public function connection() {
+    return $this->db;
+  }
+
+  public function prepare($sql) {
+    return $this->db->prepare($sql);
+  }
+
   public function query($sql) {
     $result = $this->db->query($sql);
     $this->confirm_query($result);

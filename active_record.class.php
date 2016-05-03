@@ -12,6 +12,8 @@ $db_name = "ORMTest";
 */
 class ActiveRecord {
 
+  private $new_record = false;
+
   /**
    * Relationship options
    */
@@ -55,7 +57,7 @@ class ActiveRecord {
    * @access public
    * @return void
    */
-  public function __construct() {
+  public function __construct($new_record = true) {
     $result_set = App::$db->query("DESC ".self::get_table_name());
     $object_array = array();
     while($row = App::$db->fetch_assoc($result_set)) {
@@ -68,6 +70,7 @@ class ActiveRecord {
       }
       $this->$column = null;
     }
+    $this->new_record = $new_record;
   }
 
   // Common database methods
@@ -134,6 +137,41 @@ class ActiveRecord {
   }
 
   /**
+   *
+   *
+   */
+   public function insert() {
+     $fields = $field_markers = $types = $values = array();
+
+     foreach ($this->get_modifiable_fields() as $column => $value) {
+       $fields[] = $column;
+       $field_markers[] = '?';
+       $types[] = $this->get_data_type($value);
+       $values[] = &$this->{$column};
+     }
+
+     $sql = sprintf("INSERT INTO %s (%s) VALUES (%s)", self::get_table_name(), implode(', ', $fields), implode(', ', $field_markers));
+
+     $stmt = App::$db->prepare($sql);
+
+     if(! $stmt) {
+       throw new \Exception(App::$db->connection()->error."\n\n".$sql);
+     }
+     print_r($values);
+     call_user_func_array(array($stmt, 'bind_param'), array_merge(array(implode($types)), $values));
+     $stmt->execute();
+
+     if($stmt->error) {
+       throw new \Exception($stmt->error."\n\n".$sql);
+     }
+
+     if($stmt->insert_id) {
+       $this->id = $stmt->insert_id;
+     }
+     $this->new_record = false;
+   }
+
+  /**
    * Handle find_by_attribute methods calling the find_by method
    *
    * @access public
@@ -173,7 +211,7 @@ class ActiveRecord {
       return false;
     }
     // Simple, long-form approach:
-    $object = new static();
+    $object = new static(false);
     // Dynamic, short-form approach:
     foreach($record as $attribute => $value) {
       if ($attribute === self::get_table_name_from_class().'_id') {
@@ -301,7 +339,7 @@ class ActiveRecord {
    * @static
    * @return array
    */
-  private function get_object_modifiable_fields() {
+  private function get_modifiable_fields() {
     $table_fields = array();
     $r = new ReflectionObject($this);
     foreach ($r->getProperties(ReflectionProperty::IS_PUBLIC) AS $key => $value)
@@ -316,6 +354,11 @@ class ActiveRecord {
     return $table_fields;
   }
 
+  private function get_data_type($value) {
+    if(is_int($value)) return 'i';
+    if(is_double($value)) return 'd';
+    return 's';
+  }
 }
 
 ?>
