@@ -5,19 +5,42 @@ require_once('app.class.php');
 App::run();
 $db_name = "ORMTest";
 
-class Model {
+/**
+* Model (A simple ORM for PHP)
+* @class Model
+* @author Ivan Munguia <ivanalejandro249@gmail.com>
+*/
+class ActiveRecord {
+
+  /**
+   * Relationship options
+   */
   const HAS_ONE = 1;
   const HAS_MANY = 2;
   const BELONGS_TO = 3;
 
+  /**
+   * Get the table name related to the child class
+   *
+   * @access public
+   * @static
+   * @return string
+   */
   protected static function get_table_name() {
     if(isset(static::$table_name)) {
       return static::$table_name;
     } else {
-      return self::table_name_from_class();
+      return self::get_table_name_from_class();
     }
   }
 
+  /**
+   * Get the primary key specified on the child class or set a default
+   *
+   * @access public
+   * @static
+   * @return string
+   */
   protected static function get_primary_key() {
     if(isset(static::$primary_key)) {
       return static::$primary_key;
@@ -26,6 +49,12 @@ class Model {
     }
   }
 
+  /**
+   * Constructor
+   *
+   * @access public
+   * @return void
+   */
   public function __construct() {
     $result_set = App::$db->query("DESC ".self::get_table_name());
     $object_array = array();
@@ -34,7 +63,7 @@ class Model {
     }
 
     foreach ($object_array as $index => $column) {
-      if($column === self::table_name_from_class().'_id') {
+      if($column === self::get_table_name_from_class().'_id') {
         $column = 'id';
       }
       $this->$column = null;
@@ -42,20 +71,55 @@ class Model {
   }
 
   // Common database methods
+
+  /**
+   * Return all record from the database in Model form
+   *
+   * @access public
+   * @static
+   * @return model
+   */
   public static function all() {
     return static::find_by_sql("SELECT * FROM ".self::get_table_name());
   }
 
-  public static function find($id = 0) {
-    $result_array = static::find_by_sql("SELECT * FROM " .self::get_table_name(). " WHERE ".self::get_primary_key()."='{$id}' LIMIT 1");
+  /**
+   * Return the founded record on the database based on the primary key
+   *
+   * @access public
+   * @static
+   * @param $pk_value
+   * @return model | null
+   */
+  public static function find($pk_value = 0) {
+    $result_array = static::find_by_sql("SELECT * FROM " .self::get_table_name(). " WHERE ".self::get_primary_key()."='{$pk_value}' LIMIT 1");
     return !empty($result_array) ? array_shift($result_array) : null;
   }
 
+  /**
+   * Base method for finding records by column name and value
+   *
+   * @access public
+   * @static
+   * @param string $column
+   * @param mixed $value
+   * @return model | array
+   */
   public static function find_by($column, $value) {
     $result_array = static::find_by_sql("SELECT * FROM ".self::get_table_name(). " WHERE {$column} = '{$value}'");
     return !empty($result_array) ? $result_array : [];
   }
 
+  /**
+   * Find records by the sql query provided and create objects
+   * based on the provided class or child class by default
+   *
+   * @access public
+   * @static
+   * @param string $sql
+   * @param string $class_name
+   * @return array
+   */
   public static function find_by_sql($sql="", $class_name = null) {
     $result_set = App::$db->query($sql);
     $object_array = array();
@@ -69,7 +133,14 @@ class Model {
     return $object_array;
   }
 
-  // Handle find_by_attribute methods
+  /**
+   * Handle find_by_attribute methods calling the find_by method
+   *
+   * @access public
+   * @static
+   * @param string $method_name
+   * @param array $args
+   */
 
   public static function __callStatic($method_name, $args) {
     $class_name = get_called_class();
@@ -88,6 +159,14 @@ class Model {
     throw new \Exception(sprintf('There is no static method named "%s" in the class "%s".', $method_name, $class_name));
   }
 
+  /**
+   * Instantiate a model object from a database record
+   *
+   * @access private
+   * @static
+   * @param mysqli_result $record
+   * @param boolean $establish_relationships
+   */
   private static function instantiate($record, $establish_relationships = true) {
     // Check that $record exists and is an array
     if(!isset($record) && !is_array($record)) {
@@ -97,7 +176,7 @@ class Model {
     $object = new static();
     // Dynamic, short-form approach:
     foreach($record as $attribute => $value) {
-      if ($attribute === self::table_name_from_class().'_id') {
+      if ($attribute === self::get_table_name_from_class().'_id') {
         $attribute = 'id';
       }
       if($object->has_attribute($attribute)) {
@@ -113,6 +192,12 @@ class Model {
     return $object;
   }
 
+  /**
+   * Know if a given attribute is present on the current object
+   *
+   * @access private
+   * @return boolean
+   */
   private function has_attribute($attribute) {
     // get_object_vars returns an associative array with all the attributes
     $object_vars = get_object_vars($this);
@@ -120,24 +205,46 @@ class Model {
     return array_key_exists($attribute, $object_vars);
   }
 
+  /**
+   * Convert camel case string into snake case
+   *
+   * @access private
+   * @param string $input
+   */
   private static function camel_case_to_snake_case($input) {
     return ltrim(strtolower(preg_replace('/[A-Z]/', '_$0', $input)), '_');
   }
 
+  /**
+   * Convert snake case string into camel case
+   *
+   * @access private
+   * @param string $input
+   */
   private static function snake_case_to_camel_case($input) {
     return  preg_replace_callback("/(?:^|_)([a-z])/", function($matches) {
       return strtoupper($matches[1]);
     }, $input);
   }
 
-  private static function table_name_from_class() {
+  /**
+   * Return the convey table name based on the called class name
+   *
+   * @access private
+   * @static
+   * @return string
+   */
+  private static function get_table_name_from_class() {
     return self::camel_case_to_snake_case(get_called_class());
   }
 
-  private static function class_from_table_name($table_name) {
-    return self::snake_case_to_camel_case($table_name);
-  }
-
+  /**
+   * Instantiate the assosiated objects of the model
+   *
+   * @access private
+   * @static
+   * @return void
+   */
   private static function instantiate_relationships($object) {
     if(isset(static::$has_many) && is_array(static::$has_many)) {
       self::add_related_objects($object, static::$has_many, self::HAS_MANY);
@@ -148,6 +255,13 @@ class Model {
     }
   }
 
+  /**
+   * Add instantiated objects to the model according to the association type
+   *
+   * @access private
+   * @static
+   * @return void
+   */
   private function add_related_objects(&$object, $collection, $relation_type) {
     foreach ($collection as $relation) {
       $relation_name = $related_table = $class_name = null;
@@ -180,7 +294,14 @@ class Model {
     }
   }
 
-  private function object_modifiable_fields() {
+  /**
+   * Return the object attributes allowed to be updated at database level
+   *
+   * @access private
+   * @static
+   * @return array
+   */
+  private function get_object_modifiable_fields() {
     $table_fields = array();
     $r = new ReflectionObject($this);
     foreach ($r->getProperties(ReflectionProperty::IS_PUBLIC) AS $key => $value)
