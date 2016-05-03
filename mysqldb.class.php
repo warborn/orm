@@ -1,69 +1,70 @@
 <?php
 
 class MySQLDB {
-  private $connection;
+  private $db;
 
   public function __construct($host, $user, $password, $db_name) {
     $this->open_connection($host, $user, $password, $db_name);
   }
 
   public function open_connection($host, $user, $password, $db_name) {
-    $this->connection = mysqli_connect($host, $user, $password, $db_name);
+    $this->db = new mysqli($host, $user, $password, $db_name);
 
-    if(mysqli_connect_errno()) {
+    if($this->db->mysqli_connect_errno) {
       die('Database connection failed: ' .
-        mysqli_connect_error() .
-        ' (' .mysqli_connect_errno() . ')'
+        $this->db->mysqli_connect_error .
+        ' (' .$this->db->mysqli_connect_errno . ')'
       );
     }
+
+    $this->db->set_charset('utf8');
   }
 
   public function close_connection() {
-    if(isset($this->connection)) {
-      mysqli_close($this->connection);
-      unset($this->connection);
+    if(isset($this->db)) {
+      $this->db->close();
+      unset($this->db);
     }
   }
 
   public function query($sql) {
-    $result = mysqli_query($this->connection, $sql);
+    $result = $this->db->query($sql);
     $this->confirm_query($result);
     return $result;
   }
 
   public function escape_value($string) {
-    $escaped_string = mysqli_real_escape_string($this->connection, $string);
-    return $escaped_string;
+    return $this->db->real_escape_string($string);
   }
 
   // "Database neutral" functions
 
-  public function fetch_array($result_set) {
-    return mysqli_fetch_array($result_set);
+  public function fetch_array($result) {
+    return $result->fetch_array();
   }
 
-  public function fetch_assoc($result_set) {
-    return mysqli_fetch_assoc($result_set);
+  public function fetch_assoc($result) {
+    return $result->fetch_assoc();
   }
 
-  public function num_rows($result_set) {
-    return mysqli_num_rows($result_set);
+  public function num_rows() {
+    return $this->db->num_rows;
   }
 
   public function insert_id() {
     // Get the last id inserted over the current db connection
-    return mysqli_insert_id($this->connection);
+    return $this->db->insert_id;
   }
 
   public function affected_rows() {
-    return mysqli_affected_rows($this->connection);
+    return $this->db->affected_rows;
   }
 
   // Private functions
 
   private function confirm_query($result) {
     if (!$result) {
-      die('Database query failed. ' . mysqli_error($this->connection));
+      die('Database query failed. ' . $this->db->error);
     }
   }
 
