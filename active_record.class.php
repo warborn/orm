@@ -20,8 +20,9 @@ class ActiveRecord {
   const HAS_ONE = 1;
   const HAS_MANY = 2;
   const BELONGS_TO = 3;
-  const FETCH_ONE = 4;
-  const FETCH_ALL = 5;
+  const HAS_MANY_THROUGH = 4;
+  const FETCH_ONE = 5;
+  const FETCH_ALL = 6;
 
   /**
    * Get the table name related to the child class
@@ -357,6 +358,14 @@ class ActiveRecord {
       }
     }
 
+    if(isset(static::$has_many_through)) {
+      if((count(static::$has_many_through) !== count(static::$has_many_through, COUNT_RECURSIVE))) {
+        self::add_related_objects($object, static::$has_many_through, self::HAS_MANY_THROUGH);
+      } else {
+        throw new \Exception('Has many associations are not declared as arrays');
+      }
+    }
+
     if(isset(static::$belongs_to)) {
       if((count(static::$belongs_to) !== count(static::$belongs_to, COUNT_RECURSIVE))) {
         self::add_related_objects($object, static::$belongs_to, self::BELONGS_TO);
@@ -388,6 +397,17 @@ class ActiveRecord {
       if($relation_type === self::HAS_MANY) {
         $sql = "SELECT * FROM {$relation[1]} WHERE ".self::get_table_name() . "_id" ." = '{$object->id}'";
         $object->$relation[0] = self::find_by_sql($sql, $relation[2]);
+      } else if($relation_type === self::HAS_MANY_THROUGH) {
+        $class_name = self::get_table_name_from_class();
+        $join_table = self::get_join_table_name($class_name, $relation[1]);
+        $fk = $relation[1] . '_id';
+        $pk = self::get_primary_key();
+        $sql  = "SELECT {$relation[1]}.* ";
+        $sql .= "FROM {$relation[1]} ";
+        $sql .= "JOIN {$join_table} USING ({$fk}) ";
+        $sql .= "JOIN {$class_name} USING ({$pk}) ";
+        $sql .= "WHERE {$class_name}.{$pk} = '{$object->id}'";
+        $object->$relation[0] = self::find_by_sql($sql, $relation[2]);
       } else if($relation_type === self::BELONGS_TO) {
         $fk = $relation[1] . '_id';
         $sql = "SELECT * FROM {$relation[1]} WHERE ". $relation[1] . "_id" ." = '{$object->$fk}'";
@@ -408,7 +428,7 @@ class ActiveRecord {
    */
   private function generate_association_info($relation, $size, $relation_type = self::HAS_MANY) {
     if($size === 1) {
-      if($relation_type === self::HAS_MANY) {
+      if($relation_type === self::HAS_MANY || $relation_type === self::HAS_MANY_THROUGH) {
         $relation[] = substr($relation[0], 0, - 1);
       } else if($relation_type === self::BELONGS_TO) {
         $relation[] = $relation[0];
@@ -454,6 +474,11 @@ class ActiveRecord {
     if(is_int($value)) return 'i';
     if(is_double($value)) return 'd';
     return 's';
+  }
+
+  private function get_join_table_name($lhs_table, $rhs_table) {
+    $tables = array($lhs_table, $rhs_table);
+    return implode('_', $tables);
   }
 
   /**
