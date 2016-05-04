@@ -252,8 +252,12 @@ class ActiveRecord {
     if(substr($method_name, 0, 5) === 'build') {
       $associated_class = trim(str_replace('build', '', $method_name), '_');
       $associated_class = self::snake_case_to_camel_case($associated_class);
-      array_unshift($args, $associated_class);
-      return call_user_func_array(array($class_name, 'build'), $args);
+      if(in_array($associated_class, $this->get_associated_classes())) {
+        array_unshift($args, $associated_class);
+        return call_user_func_array(array($class_name, 'build'), $args);
+      }
+
+      throw new \Exception(sprintf('There is no association with the class "%s" on "%s" object.', $associated_class, $class_name));
     }
   }
 
@@ -341,6 +345,7 @@ class ActiveRecord {
    *
    * @access private
    * @static
+   * @param model $object
    * @return void
    */
   private static function instantiate_relationships($object) {
@@ -365,46 +370,62 @@ class ActiveRecord {
    * Add instantiated objects to the model according to the association type
    *
    * @access private
-   * @static
+   * @param model reference $object
+   * @param array $collection
+   * @param int $relation_type
    * @return void
    */
   private function add_related_objects(&$object, $collection, $relation_type) {
     foreach ($collection as $relation) {
-      $relation_name = $related_table = $class_name = null;
+      // $relation_name = $related_table = $class_name = null;
+      $relation_size = count($relation);
+      if($relation_size > 3) {
+        throw new \Exception("To many arguments, {$relation_size} given, expected 1..3");
+      }
 
-      if(count($relation) === 3) {
-        $class_name = array_pop($relation);
-      }
-      if(count($relation) === 2) {
-        $related_table = array_pop($relation);
-        $class_name = $class_name ? $class_name : self::snake_case_to_camel_case($related_table);
-      }
-      if(count($relation) == 1) {
-        $relation_name = $relation[0];
-        if($relation_type === self::HAS_MANY) {
-          $related_table = $related_table ? $related_table : substr($relation_name, 0, -1);
-        } else if($relation_type === self::BELONGS_TO) {
-          $related_table = $relation_name;
-        }
-        $class_name = $class_name ? $class_name : self::snake_case_to_camel_case($related_table);
-      }
+      $relation = self::generate_association_info($relation, $relation_size, $relation_type);
 
       if($relation_type === self::HAS_MANY) {
-        $sql = "SELECT * FROM {$related_table} WHERE ".self::get_table_name() . "_id" ." = '{$object->id}'";
-        $object->$relation_name = self::find_by_sql($sql, $class_name);
+        $sql = "SELECT * FROM {$relation[1]} WHERE ".self::get_table_name() . "_id" ." = '{$object->id}'";
+        $object->$relation[0] = self::find_by_sql($sql, $relation[2]);
       } else if($relation_type === self::BELONGS_TO) {
-        $sql = "SELECT * FROM {$related_table} WHERE ".$related_table . "_id" ." = '{$object->id}'";
-        $result_array = self::find_by_sql($sql, $class_name);
-        $object->$relation_name = !empty($result_array) ? array_shift($result_array) : null;
+        $fk = $relation[1] . '_id';
+        $sql = "SELECT * FROM {$relation[1]} WHERE ". $relation[1] . "_id" ." = '{$object->$fk}'";
+        $result_array = self::find_by_sql($sql, $relation[2]);
+        $object->$relation[0] = !empty($result_array) ? array_shift($result_array) : null;
       }
     }
+  }
+
+  /**
+   * Returns association, table and class names in array form
+   *
+   * @access private
+   * @param array $relation
+   * @param int $size
+   * @param int $relation_type
+   * @return array
+   */
+  private function generate_association_info($relation, $size, $relation_type = self::HAS_MANY) {
+    if($size === 1) {
+      if($relation_type === self::HAS_MANY) {
+        $relation[] = substr($relation[0], 0, - 1);
+      } else if($relation_type === self::BELONGS_TO) {
+        $relation[] = $relation[0];
+      }
+      $size++;
+    }
+    if($size == 2) {
+      $relation[] = self::snake_case_to_camel_case($relation[1]);
+    }
+
+    return $relation;
   }
 
   /**
    * Return the object attributes allowed to be updated at database level
    *
    * @access private
-   * @static
    * @return array
    */
   private function get_modifiable_fields() {
@@ -426,6 +447,7 @@ class ActiveRecord {
    * Return the needed bind_param that corresponds a datatype
    *
    * @access private
+   * @param mixed $value
    * @return char
    */
   private function get_data_type($value) {
@@ -433,6 +455,45 @@ class ActiveRecord {
     if(is_double($value)) return 'd';
     return 's';
   }
+
+  /**
+   * Return associated class names for the calling object
+   *
+   * @access private
+   * @return array
+   */
+  private function get_associated_classes() {
+    $has_many_classes = $belongs_to_classes = array();
+    if(isset(static::$has_many)) {
+      $relation_type = self::HAS_MANY;
+      $has_many_classes = self::get_associated_classes_for(static::$has_many, $relation_type);
+    }
+    if(isset(static::$belongs_to)) {
+      $relation_type = self::BELONGS_TO;
+      $belongs_to_classes = self::get_associated_classes_for(static::$belongs_to, $relation_type);
+    }
+    return array_merge($has_many_classes, $belongs_to_classes);
+  }
+
+  /**
+   * Return associated class names a specific relation
+   *
+   * @access private
+   * @param array $collection
+   * @param int $relation_type
+   * @return array
+   */
+  private function get_associated_classes_for($collection, $relation_type) {
+    $array = array();
+    foreach ($collection as $relation) {
+      $relation_size = count($relation);
+      $relation = self::generate_association_info($relation, $relation_size, $relation_type);
+      $array[] = $relation[2];
+    }
+
+    return $array;
+  }
+
 }
 
 ?>
