@@ -57,7 +57,7 @@ class ActiveRecord {
    * @access public
    * @return void
    */
-  public function __construct($new_record = true) {
+  public function __construct($param = null) {
     $result_set = App::$db->query("DESC ".self::get_table_name());
     $object_array = array();
     while($row = App::$db->fetch_assoc($result_set)) {
@@ -68,9 +68,13 @@ class ActiveRecord {
       if($column === self::get_table_name_from_class().'_id') {
         $column = 'id';
       }
-      $this->$column = null;
+      if(is_array($param)) {
+        $this->$column = $param[$column];
+      } else {
+        $this->$column = null;
+      }
     }
-    $this->new_record = $new_record;
+    $this->new_record = is_bool($param) ? $param : true;
   }
 
   // Common database methods
