@@ -20,6 +20,8 @@ class ActiveRecord {
   const HAS_ONE = 1;
   const HAS_MANY = 2;
   const BELONGS_TO = 3;
+  const FETCH_ONE = 4;
+  const FETCH_ALL = 5;
 
   /**
    * Get the table name related to the child class
@@ -115,9 +117,12 @@ class ActiveRecord {
    * @param mixed $value
    * @return model | array
    */
-  public static function find_by($column, $value) {
-    $result_array = static::find_by_sql("SELECT * FROM ".self::get_table_name(). " WHERE {$column} = '{$value}'");
-    return !empty($result_array) ? $result_array : [];
+  public static function find_by($column, $value, $fetch = self::FETCH_ONE) {
+    $sql = "SELECT * FROM ".self::get_table_name(). " WHERE {$column} = '{$value}'";
+    $sql .= $fetch === self::FETCH_ONE ? ' LIMIT 1' : "";
+    echo $sql;
+    $result_array = static::find_by_sql($sql);
+    return !empty($result_array) ? ($fetch == self::FETCH_ONE ? array_shift($result_array) : $result_array) : [];
   }
 
   /**
@@ -170,7 +175,6 @@ class ActiveRecord {
      if(! $stmt) {
        throw new \Exception(App::$db->connection()->error."\n\n".$sql);
      }
-     print_r($values);
      call_user_func_array(array($stmt, 'bind_param'), array_merge(array(implode($types)), $values));
      $stmt->execute();
 
@@ -184,6 +188,25 @@ class ActiveRecord {
      $this->new_record = false;
    }
 
+   /**
+    * Insert associated records to the database
+    *
+    * @access public
+    * @return model
+    */
+    public function build($class_name, $param = null) {
+      $pk = self::get_primary_key();
+      if(isset($this->$pk)) {
+        $pk_value = $this->$pk;
+      } else if(isset($this->id)) {
+        $pk_value = $this->id;
+      } else {
+        throw new Exception(sprintf('Unable to build a %s record, parent has no primary key value', $class_name));
+      }
+      $param[$pk] = $pk_value;
+      return new $class_name($param);
+    }
+
   /**
    * Handle find_by_attribute methods calling the find_by method
    *
@@ -195,18 +218,28 @@ class ActiveRecord {
   public static function __callStatic($method_name, $args) {
     $class_name = get_called_class();
 
-    // Extract the field name from the method name
-    $array = split('_', $method_name);
-    array_splice($array, 0, 2);
-    $field =  implode('_', $array);
-
-    array_unshift($args, $field);
-
     if(substr($method_name, 0, 7) === 'find_by') {
+      // Extract the field name from the method name
+      $array = split('_', $method_name);
+      array_splice($array, 0, 2);
+      $field =  implode('_', $array);
+
+      array_unshift($args, $field);
       return call_user_func_array(array($class_name, 'find_by'), $args);
     }
 
-    throw new \Exception(sprintf('There is no static method named "%s" in the class "%s".', $method_name, $class_name));
+    // throw new \Exception(sprintf('There is no static method named "%s" in the class "%s".', $method_name, $class_name));
+  }
+
+  public function __call($method_name, $args) {
+    $class_name = get_called_class();
+
+    if(substr($method_name, 0, 5) === 'build') {
+      $associated_class = trim(str_replace('build', '', $method_name), '_');
+      $associated_class = self::snake_case_to_camel_case($associated_class);
+      array_unshift($args, $associated_class);
+      return call_user_func_array(array($class_name, 'build'), $args);
+    }
   }
 
   /**
