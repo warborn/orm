@@ -26,7 +26,7 @@ class ActiveRecord {
   /**
    * Get the table name related to the child class
    *
-   * @access public
+   * @access protected
    * @static
    * @return string
    */
@@ -41,7 +41,7 @@ class ActiveRecord {
   /**
    * Get the primary key specified on the child class or set a default
    *
-   * @access public
+   * @access protected
    * @static
    * @return string
    */
@@ -54,17 +54,30 @@ class ActiveRecord {
   }
 
   /**
-   * Constructor
+   * Get the column names form the table that corresponds to the class
    *
-   * @access public
-   * @return void
+   * @access protected
+   * @static
+   * @return array
    */
-  public function __construct($param = null) {
+  protected static function get_table_columns() {
     $result_set = App::$db->query("DESC ".self::get_table_name());
     $object_array = array();
     while($row = App::$db->fetch_assoc($result_set)) {
       $object_array[] = $row['Field'];
     }
+    return $object_array;
+  }
+
+  /**
+   * Constructor
+   *
+   * @access public
+   * @param mixed $param
+   * @return void
+   */
+  public function __construct($param = null) {
+    $object_array = self::get_table_columns();
 
     foreach ($object_array as $index => $column) {
       if($column === self::get_table_name_from_class().'_id') {
@@ -97,7 +110,7 @@ class ActiveRecord {
    *
    * @access public
    * @static
-   * @param $pk_value
+   * @param mixed $pk_value
    * @return model | null
    */
   public static function find($pk_value = 0) {
@@ -115,12 +128,12 @@ class ActiveRecord {
    * @static
    * @param string $column
    * @param mixed $value
+   * @param int $fetch
    * @return model | array
    */
   public static function find_by($column, $value, $fetch = self::FETCH_ONE) {
     $sql = "SELECT * FROM ".self::get_table_name(). " WHERE {$column} = '{$value}'";
     $sql .= $fetch === self::FETCH_ONE ? ' LIMIT 1' : "";
-    echo $sql;
     $result_array = static::find_by_sql($sql);
     return !empty($result_array) ? ($fetch == self::FETCH_ONE ? array_shift($result_array) : $result_array) : [];
   }
@@ -189,7 +202,7 @@ class ActiveRecord {
    }
 
    /**
-    * Insert associated records to the database
+    * Create associated objects
     *
     * @access public
     * @return model
@@ -224,11 +237,13 @@ class ActiveRecord {
       array_splice($array, 0, 2);
       $field =  implode('_', $array);
 
-      array_unshift($args, $field);
-      return call_user_func_array(array($class_name, 'find_by'), $args);
-    }
+      if(in_array($field, self::get_table_columns())) {
+        array_unshift($args, $field);
+        return call_user_func_array(array($class_name, 'find_by'), $args);
+      }
 
-    // throw new \Exception(sprintf('There is no static method named "%s" in the class "%s".', $method_name, $class_name));
+      throw new \Exception(sprintf('There is no attribute named "%s" in the class "%s".', $field, $class_name));
+    }
   }
 
   public function __call($method_name, $args) {
@@ -407,6 +422,12 @@ class ActiveRecord {
     return $table_fields;
   }
 
+  /**
+   * Return the needed bind_param that corresponds a datatype
+   *
+   * @access private
+   * @return char
+   */
   private function get_data_type($value) {
     if(is_int($value)) return 'i';
     if(is_double($value)) return 'd';
