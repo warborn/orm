@@ -96,7 +96,10 @@ class ActiveRecord {
    */
   public static function find($pk_value = 0) {
     $result_array = static::find_by_sql("SELECT * FROM " .self::get_table_name(). " WHERE ".self::get_primary_key()."='{$pk_value}' LIMIT 1");
-    return !empty($result_array) ? array_shift($result_array) : null;
+    if(!empty($result_array)) {
+      return array_shift($result_array);
+    }
+    throw new \Exception(sprintf('%s record not found in database with %s = %s', get_called_class(), self::get_primary_key(), $pk_value));
   }
 
   /**
@@ -130,15 +133,21 @@ class ActiveRecord {
       if($class_name === null) {
         $object_array[] = static::instantiate($row);
       } else {
-        $object_array[] = $class_name::instantiate($row, false);
+        if(class_exists($class_name)) {
+          $object_array[] = $class_name::instantiate($row, false);
+        } else {
+          throw new \Exception(sprintf('Cannot instantiate relationship of type %s class does not exist', $class_name));
+        }
       }
     }
     return $object_array;
   }
 
   /**
+   * Insert a new record in the database
    *
-   *
+   * @access public
+   * @return void
    */
    public function insert() {
      $fields = $field_markers = $types = $values = array();
@@ -179,7 +188,6 @@ class ActiveRecord {
    * @param string $method_name
    * @param array $args
    */
-
   public static function __callStatic($method_name, $args) {
     $class_name = get_called_class();
 
@@ -208,7 +216,7 @@ class ActiveRecord {
   private static function instantiate($record, $establish_relationships = true) {
     // Check that $record exists and is an array
     if(!isset($record) && !is_array($record)) {
-      return false;
+      throw new \Exception(sprintf('Unable to extract column values from %s', gettype($record)));
     }
     // Simple, long-form approach:
     $object = new static(false);
@@ -284,12 +292,20 @@ class ActiveRecord {
    * @return void
    */
   private static function instantiate_relationships($object) {
-    if(isset(static::$has_many) && is_array(static::$has_many)) {
-      self::add_related_objects($object, static::$has_many, self::HAS_MANY);
+    if(isset(static::$has_many)) {
+      if((count(static::$has_many) !== count(static::$has_many, COUNT_RECURSIVE))) {
+        self::add_related_objects($object, static::$has_many, self::HAS_MANY);
+      } else {
+        throw new \Exception('Has many associations are not declared as arrays');
+      }
     }
 
-    if(isset(static::$belongs_to) && is_array(static::$belongs_to)) {
-      self::add_related_objects($object, static::$belongs_to, self::BELONGS_TO);
+    if(isset(static::$belongs_to)) {
+      if((count(static::$belongs_to) !== count(static::$belongs_to, COUNT_RECURSIVE))) {
+        self::add_related_objects($object, static::$belongs_to, self::BELONGS_TO);
+      } else {
+        throw new \Exception('Belongs to associations are not declared as arrays');
+      }
     }
   }
 
