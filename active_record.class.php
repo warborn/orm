@@ -62,9 +62,9 @@ class ActiveRecord {
    * @return array
    */
   protected static function get_table_columns() {
-    $result_set = App::$db->query("DESC ".self::get_table_name());
+    $result_set = App::get_db()->query("DESC ".self::get_table_name());
     $object_array = array();
-    while($row = App::$db->fetch_assoc($result_set)) {
+    while($row = App::get_db()->fetch_assoc($result_set)) {
       $object_array[] = $row['Field'];
     }
     return $object_array;
@@ -85,7 +85,7 @@ class ActiveRecord {
         $column = 'id';
       }
       if(is_array($param)) {
-        $this->$column = $param[$column];
+        $this->$column = isset($param[$column]) ? $param[$column] : null;
       } else {
         $this->$column = null;
       }
@@ -150,9 +150,9 @@ class ActiveRecord {
    * @return array
    */
   public static function find_by_sql($sql="", $class_name = null) {
-    $result_set = App::$db->query($sql);
+    $result_set = App::get_db()->query($sql);
     $object_array = array();
-    while($row = App::$db->fetch_assoc($result_set)) {
+    while($row = App::get_db()->fetch_assoc($result_set)) {
       if($class_name === null) {
         $object_array[] = static::instantiate($row);
       } else {
@@ -184,10 +184,10 @@ class ActiveRecord {
 
      $sql = sprintf("INSERT INTO %s (%s) VALUES (%s)", self::get_table_name(), implode(', ', $fields), implode(', ', $field_markers));
 
-     $stmt = App::$db->prepare($sql);
+     $stmt = App::get_db()->prepare($sql);
 
      if(! $stmt) {
-       throw new \Exception(App::$db->connection()->error."\n\n".$sql);
+       throw new \Exception(App::get_db()->connection()->error."\n\n".$sql);
      }
      call_user_func_array(array($stmt, 'bind_param'), array_merge(array(implode($types)), $values));
      $stmt->execute();
@@ -200,7 +200,71 @@ class ActiveRecord {
        $this->id = $stmt->insert_id;
      }
      $this->new_record = false;
+
+     return true;
    }
+
+   /**
+    * Update a record already in the database
+    *
+    * @access public
+    * @return void
+    */
+    public function update() {
+      if($this->new_record) {
+        throw new \Exception('Cannot update, record hasn\'t been saved to the database');
+      }
+
+      $fields = $field_markers = $types = $values = array();
+
+      foreach ($this->get_modifiable_fields() as $column => $value) {
+        $fields[] = sprintf('%s = ?', $column);
+        $types[] = $this->get_data_type($value);
+        $values[] = &$this->{$column};
+      }
+      $types[] = 's';
+      $values[] = &$this->id;
+
+      $sql = sprintf("UPDATE %s SET %s WHERE %s = ?", self::get_table_name(), implode(', ', $fields), self::get_primary_key());
+
+      $stmt = App::get_db()->prepare($sql);
+
+      if(! $stmt) {
+        throw new \Exception(App::get_db()->connection()->error."\n\n".$sql);
+      }
+      call_user_func_array(array($stmt, 'bind_param'), array_merge(array(implode($types)), $values));
+      $stmt->execute();
+
+      if($stmt->error) {
+        throw new \Exception($stmt->error."\n\n".$sql);
+      }
+
+      return true;
+    }
+
+    /**
+     * Set new values for the existing attributes and updates them
+     *
+     * @access public
+     * @param array $attributes
+     * @return boolean
+     */
+    public function update_attributes($attributes) {
+      foreach ($attributes as $attribute => $value) {
+        $this->$attribute = $value;
+      }
+      return $this->save();
+    }
+
+   /**
+    * Wrapper method for insert or update
+    *
+    * @access public
+    * @return boolean
+    */
+    public function save() {
+      return $this->new_record ? $this->insert() : $this->update();
+    }
 
    /**
     * Create associated objects
