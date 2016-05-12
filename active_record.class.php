@@ -266,6 +266,35 @@ class ActiveRecord {
       return $this->new_record ? $this->insert() : $this->update();
     }
 
+    /**
+     * Delete a record from the database
+     *
+     * @access public
+     * @return boolean
+     */
+     public function destroy() {
+       if($this->new_record) {
+         throw new \Exception('Cannot destroy, record hasn\'t been saved to the database');
+       }
+
+       $sql = sprintf('DELETE FROM %s WHERE %s = ?', self::get_table_name(), self::get_primary_key());
+
+       $stmt = App::get_db()->prepare($sql);
+
+       if(! $stmt) {
+         throw new \Exception(App::get_db()->connection()->error."\n\n".$sql);
+       }
+
+       $stmt->bind_param('i', $this->id);
+       $stmt->execute();
+
+       if($stmt->error) {
+         throw new \Exception($stmt->error."\n\n".$sql);
+       }
+
+       return true;
+     }
+
    /**
     * Create associated objects
     *
