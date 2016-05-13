@@ -477,7 +477,7 @@ class ActiveRecord {
    * @param int $relation_type
    * @return void
    */
-  private function add_related_objects(&$object, $collection, $relation_type) {
+  private static function add_related_objects(&$object, $collection, $relation_type) {
     foreach ($collection as $relation) {
       // $relation_name = $related_table = $class_name = null;
       $relation_size = count($relation);
@@ -519,7 +519,7 @@ class ActiveRecord {
    * @param int $relation_type
    * @return array
    */
-  private function generate_association_info($relation, $size, $relation_type = self::HAS_MANY) {
+  private static function generate_association_info($relation, $size, $relation_type = self::HAS_MANY) {
     if($size === 1) {
       if($relation_type === self::HAS_MANY || $relation_type === self::HAS_MANY_THROUGH) {
         $relation[] = substr($relation[0], 0, - 1);
