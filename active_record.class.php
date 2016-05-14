@@ -389,10 +389,12 @@ class ActiveRecord {
    */
   private static function add_related_objects(&$object, $collection, $relation_type) {
     foreach ($collection as $relation) {
-      // $relation_name = $related_table = $class_name = null;
       $relation_size = count($relation);
-      if($relation_size > 3) {
+      if($relation_size > 3 && $relation_type !== self::HAS_MANY_THROUGH) {
         throw new \Exception("To many arguments, {$relation_size} given, expected 1..3");
+      } else if($relation_type === self::HAS_MANY_THROUGH && $relation_size < 4 &&
+                self::HAS_MANY_THROUGH && $relation_size > 1) {
+        throw new \Exception("{$relation_size} arguments given, expected 1 or 4");
       }
 
       $relation = self::generate_association_info($relation, $relation_size, $relation_type);
@@ -409,11 +411,12 @@ class ActiveRecord {
         $object->$relation[0] = self::find_by_sql($sql, $relation[2], $establish_relationships);
       } else if($relation_type === self::HAS_MANY_THROUGH) {
         $class_name = self::get_table_name_from_class();
-        $join_table = self::get_join_table_name($class_name, $relation[1]);
-        $fk = $relation[1] . '_id';
+        $join_table = $relation_size === 1 ? self::get_join_table_name($class_name, $relation[1]) : $relation[1];
+        $end_class  = $relation_size === 1 ? $relation[1] : $relation[3];
+        $fk = $end_class . '_id';
         $pk = self::get_primary_key();
-        $sql  = "SELECT {$relation[1]}.* ";
-        $sql .= "FROM {$relation[1]} ";
+        $sql  = "SELECT {$end_class}.* ";
+        $sql .= "FROM {$end_class} ";
         $sql .= "JOIN {$join_table} USING ({$fk}) ";
         $sql .= "JOIN {$class_name} USING ({$pk}) ";
         $sql .= "WHERE {$class_name}.{$pk} = '{$object->id}'";
