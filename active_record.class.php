@@ -13,6 +13,7 @@ $db_name = "ORMTest";
 class ActiveRecord {
 
   private $new_record = false;
+  private static $owner_class_name;
 
   /**
    * Relationship options
@@ -23,52 +24,6 @@ class ActiveRecord {
   const HAS_MANY_THROUGH = 4;
   const FETCH_ONE = 5;
   const FETCH_ALL = 6;
-
-  /**
-   * Get the table name related to the child class
-   *
-   * @access protected
-   * @static
-   * @return string
-   */
-  protected static function get_table_name() {
-    if(isset(static::$table_name)) {
-      return static::$table_name;
-    } else {
-      return self::get_table_name_from_class();
-    }
-  }
-
-  /**
-   * Get the primary key specified on the child class or set a default
-   *
-   * @access protected
-   * @static
-   * @return string
-   */
-  protected static function get_primary_key() {
-    if(isset(static::$primary_key)) {
-      return static::$primary_key;
-    } else {
-      return self::get_table_name() . '_id';
-    }
-  }
-
-  /**
-   * Get the column names form the table that corresponds to the class
-   *
-   * @access protected
-   * @static
-   * @return array
-   */
-  protected static function get_table_columns() {
-    $result_set = App::get_db()->query("DESC ".self::get_table_name());
-    $object_array = array();
-    while($row = App::get_db()->fetch_assoc($result_set)) {
-      $object_array[] = $row['Field'];
-    }
-    return $object_array;
-  }
 
   /**
    * Constructor
@@ -94,17 +49,6 @@ class ActiveRecord {
   }
 
   // Common database methods
-
-  /**
-   * Return all record from the database in Model form
-   *
-   * @access public
-   * @static
-   * @return model
-   */
-  public static function all() {
-    return static::find_by_sql("SELECT * FROM ".self::get_table_name());
-  }
 
   /**
    * Return the founded record on the database based on the primary key
@@ -149,7 +93,7 @@ class ActiveRecord {
    * @param string $class_name
    * @return array
    */
-  public static function find_by_sql($sql="", $class_name = null) {
+  public static function find_by_sql($sql="", $class_name = null, $establish_relationships = true) {
     $result_set = App::get_db()->query($sql);
     $object_array = array();
     while($row = App::get_db()->fetch_assoc($result_set)) {
@@ -157,13 +101,24 @@ class ActiveRecord {
         $object_array[] = static::instantiate($row);
       } else {
         if(class_exists($class_name)) {
-          $object_array[] = $class_name::instantiate($row, false);
+            $object_array[] = $class_name::instantiate($row, $establish_relationships);
         } else {
           throw new \Exception(sprintf('Cannot instantiate relationship of type %s class does not exist', $class_name));
         }
       }
     }
     return $object_array;
+  }
+
+  /**
+   * Return all record from the database in Model form
+   *
+   * @access public
+   * @static
+   * @return model
+   */
+  public static function all() {
+    return static::find_by_sql("SELECT * FROM ".self::get_table_name());
   }
 
   /**
@@ -370,6 +325,7 @@ class ActiveRecord {
     }
     // Simple, long-form approach:
     $object = new static(false);
+
     // Dynamic, short-form approach:
     foreach($record as $attribute => $value) {
       if ($attribute === self::get_table_name_from_class().'_id') {
@@ -386,52 +342,6 @@ class ActiveRecord {
     }
 
     return $object;
-  }
-
-  /**
-   * Know if a given attribute is present on the current object
-   *
-   * @access private
-   * @return boolean
-   */
-  private function has_attribute($attribute) {
-    // get_object_vars returns an associative array with all the attributes
-    $object_vars = get_object_vars($this);
-    // Checks if the given key or index exists in the array
-    return array_key_exists($attribute, $object_vars);
-  }
-
-  /**
-   * Convert camel case string into snake case
-   *
-   * @access private
-   * @param string $input
-   */
-  private static function camel_case_to_snake_case($input) {
-    return ltrim(strtolower(preg_replace('/[A-Z]/', '_$0', $input)), '_');
-  }
-
-  /**
-   * Convert snake case string into camel case
-   *
-   * @access private
-   * @param string $input
-   */
-  private static function snake_case_to_camel_case($input) {
-    return  preg_replace_callback("/(?:^|_)([a-z])/", function($matches) {
-      return strtoupper($matches[1]);
-    }, $input);
-  }
-
-  /**
-   * Return the convey table name based on the called class name
-   *
-   * @access private
-   * @static
-   * @return string
-   */
-  private static function get_table_name_from_class() {
-    return self::camel_case_to_snake_case(get_called_class());
   }
 
   /**
@@ -487,9 +397,16 @@ class ActiveRecord {
 
       $relation = self::generate_association_info($relation, $relation_size, $relation_type);
 
+      if(self::$owner_class_name === $relation[2]) {
+        $establish_relationships = false;
+      } else {
+        self::$owner_class_name = get_called_class();
+        $establish_relationships = true;
+      }
+
       if($relation_type === self::HAS_MANY) {
         $sql = "SELECT * FROM {$relation[1]} WHERE ".self::get_table_name() . "_id" ." = '{$object->id}'";
-        $object->$relation[0] = self::find_by_sql($sql, $relation[2]);
+        $object->$relation[0] = self::find_by_sql($sql, $relation[2], $establish_relationships);
       } else if($relation_type === self::HAS_MANY_THROUGH) {
         $class_name = self::get_table_name_from_class();
         $join_table = self::get_join_table_name($class_name, $relation[1]);
@@ -500,15 +417,17 @@ class ActiveRecord {
         $sql .= "JOIN {$join_table} USING ({$fk}) ";
         $sql .= "JOIN {$class_name} USING ({$pk}) ";
         $sql .= "WHERE {$class_name}.{$pk} = '{$object->id}'";
-        $object->$relation[0] = self::find_by_sql($sql, $relation[2]);
+        $object->$relation[0] = self::find_by_sql($sql, $relation[2], $establish_relationships);
       } else if($relation_type === self::BELONGS_TO) {
         $fk = $relation[1] . '_id';
         $sql = "SELECT * FROM {$relation[1]} WHERE ". $relation[1] . "_id" ." = '{$object->$fk}'";
-        $result_array = self::find_by_sql($sql, $relation[2]);
+        $result_array = self::find_by_sql($sql, $relation[2], $establish_relationships);
         $object->$relation[0] = !empty($result_array) ? array_shift($result_array) : null;
       }
     }
   }
+
+  /************ ORM HELPER METHODS FOR OBJECT INSTANTIATION *************/
 
   /**
    * Returns association, table and class names in array form
@@ -536,42 +455,73 @@ class ActiveRecord {
   }
 
   /**
-   * Return the object attributes allowed to be updated at database level
+   * Return the convey table name based on the called class name
    *
    * @access private
-   * @return array
+   * @static
+   * @return string
    */
-  private function get_modifiable_fields() {
-    $table_fields = array();
-    $r = new ReflectionObject($this);
-    foreach ($r->getProperties(ReflectionProperty::IS_PUBLIC) AS $key => $value)
-    {
-      $key = $value->getName();
-      $value = $value->getValue($this);
-
-      if(! is_object($value) && $key !== 'id') {
-        $table_fields[$key] =  $value;
-      }
-    }
-    return $table_fields;
+  private static function get_table_name_from_class() {
+    return self::camel_case_to_snake_case(get_called_class());
   }
 
   /**
-   * Return the needed bind_param that corresponds a datatype
+   * Get the table name related to the child class
    *
-   * @access private
-   * @param mixed $value
-   * @return char
+   * @access protected
+   * @static
+   * @return string
    */
-  private function get_data_type($value) {
-    if(is_int($value)) return 'i';
-    if(is_double($value)) return 'd';
-    return 's';
+  protected static function get_table_name() {
+    if(isset(static::$table_name)) {
+      return static::$table_name;
+    } else {
+      return self::get_table_name_from_class();
+    }
   }
 
-  private function get_join_table_name($lhs_table, $rhs_table) {
-    $tables = array($lhs_table, $rhs_table);
-    return implode('_', $tables);
+  /**
+   * Get the primary key specified on the child class or set a default
+   *
+   * @access protected
+   * @static
+   * @return string
+   */
+  protected static function get_primary_key() {
+    if(isset(static::$primary_key)) {
+      return static::$primary_key;
+    } else {
+      return self::get_table_name() . '_id';
+    }
+  }
+
+  /**
+   * Get the column names form the table that corresponds to the class
+   *
+   * @access protected
+   * @static
+   * @return array
+   */
+  protected static function get_table_columns() {
+    $result_set = App::get_db()->query("DESC ".self::get_table_name());
+    $object_array = array();
+    while($row = App::get_db()->fetch_assoc($result_set)) {
+      $object_array[] = $row['Field'];
+    }
+    return $object_array;
+  }
+
+  /**
+   * Know if a given attribute is present on the current object
+   *
+   * @access private
+   * @return boolean
+   */
+  private function has_attribute($attribute) {
+    // get_object_vars returns an associative array with all the attributes
+    $object_vars = get_object_vars($this);
+    // Checks if the given key or index exists in the array
+    return array_key_exists($attribute, $object_vars);
   }
 
   /**
@@ -594,7 +544,7 @@ class ActiveRecord {
   }
 
   /**
-   * Return associated class names a specific relation
+   * Return associated class names for a specific type of relation
    *
    * @access private
    * @param array $collection
@@ -610,6 +560,69 @@ class ActiveRecord {
     }
 
     return $array;
+  }
+
+  /**
+   * Return the needed bind_param that corresponds a datatype
+   *
+   * @access private
+   * @param mixed $value
+   * @return char
+   */
+  private function get_data_type($value) {
+    if(is_int($value)) return 'i';
+    if(is_double($value)) return 'd';
+    return 's';
+  }
+
+  private function get_join_table_name($lhs_table, $rhs_table) {
+    $tables = array($lhs_table, $rhs_table);
+    return implode('_', $tables);
+  }
+
+  /**
+   * Return the object attributes allowed to be updated at database level
+   *
+   * @access private
+   * @return array
+   */
+  private function get_modifiable_fields() {
+    $table_fields = array();
+    $r = new ReflectionObject($this);
+    foreach ($r->getProperties(ReflectionProperty::IS_PUBLIC) AS $key => $value)
+    {
+      $key = $value->getName();
+      $value = $value->getValue($this);
+
+      if(! is_object($value) && $key !== 'id') {
+        $table_fields[$key] =  $value;
+      }
+    }
+    return $table_fields;
+  }
+
+  /************ GENERAL HELPER METHODS *************/
+
+  /**
+   * Convert camel case string into snake case
+   *
+   * @access private
+   * @param string $input
+   */
+  private static function camel_case_to_snake_case($input) {
+    return ltrim(strtolower(preg_replace('/[A-Z]/', '_$0', $input)), '_');
+  }
+
+  /**
+   * Convert snake case string into camel case
+   *
+   * @access private
+   * @param string $input
+   */
+  private static function snake_case_to_camel_case($input) {
+    return  preg_replace_callback("/(?:^|_)([a-z])/", function($matches) {
+      return strtoupper($matches[1]);
+    }, $input);
   }
 
 }
