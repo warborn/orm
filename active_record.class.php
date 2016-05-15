@@ -1,10 +1,5 @@
 <?php
 
-require_once('mysqldb.class.php');
-require_once('app.class.php');
-App::run();
-$db_name = "ORMTest";
-
 /**
 * Model (A simple ORM for PHP)
 * @class Model
@@ -369,6 +364,14 @@ class ActiveRecord {
       }
     }
 
+    if(isset(static::$has_one)) {
+      if((count(static::$has_one) !== count(static::$has_one, COUNT_RECURSIVE))) {
+        self::add_related_objects($object, static::$has_one, self::HAS_ONE);
+      } else {
+        throw new \Exception('Has one assosiations are not declared as arrays');
+      }
+    }
+
     if(isset(static::$belongs_to)) {
       if((count(static::$belongs_to) !== count(static::$belongs_to, COUNT_RECURSIVE))) {
         self::add_related_objects($object, static::$belongs_to, self::BELONGS_TO);
@@ -426,6 +429,11 @@ class ActiveRecord {
         $sql = "SELECT * FROM {$relation[1]} WHERE ". $relation[1] . "_id" ." = '{$object->$fk}'";
         $result_array = self::find_by_sql($sql, $relation[2], $establish_relationships);
         $object->$relation[0] = !empty($result_array) ? array_shift($result_array) : null;
+      } else if($relation_type === self::HAS_ONE) {
+        $fk = self::get_table_name_from_class() . '_id';
+        $sql = "SELECT * FROM {$relation[1]} WHERE {$fk} = '{$object->id}'";
+        $result_array = self::find_by_sql($sql, $relation[2], $establish_relationships);
+        $object->$relation[0] = !empty($result_array) ? array_shift($result_array) : null;
       }
     }
   }
@@ -445,7 +453,7 @@ class ActiveRecord {
     if($size === 1) {
       if($relation_type === self::HAS_MANY || $relation_type === self::HAS_MANY_THROUGH) {
         $relation[] = substr($relation[0], 0, - 1);
-      } else if($relation_type === self::BELONGS_TO) {
+      } else if($relation_type === self::BELONGS_TO || $relation_type === self::HAS_ONE) {
         $relation[] = $relation[0];
       }
       $size++;
@@ -580,6 +588,7 @@ class ActiveRecord {
 
   private function get_join_table_name($lhs_table, $rhs_table) {
     $tables = array($lhs_table, $rhs_table);
+    sort($tables);
     return implode('_', $tables);
   }
 
