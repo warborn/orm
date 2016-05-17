@@ -8,7 +8,6 @@
 class ActiveRecord {
 
   private $new_record = false;
-  private static $owner_class_name;
 
   /**
    * Relationship options
@@ -88,7 +87,7 @@ class ActiveRecord {
    * @param string $class_name
    * @return array
    */
-  public static function find_by_sql($sql="", $class_name = null, $establish_relationships = true) {
+  public static function find_by_sql($sql="", $class_name = null, $establish_relationships = true, $parent_class = null) {
     $result_set = App::get_db()->query($sql);
     $object_array = array();
     while($row = App::get_db()->fetch_assoc($result_set)) {
@@ -96,7 +95,7 @@ class ActiveRecord {
         $object_array[] = static::instantiate($row);
       } else {
         if(class_exists($class_name)) {
-            $object_array[] = $class_name::instantiate($row, $establish_relationships);
+            $object_array[] = $class_name::instantiate($row, $establish_relationships, $parent_class);
         } else {
           throw new \Exception(sprintf('Cannot instantiate relationship of type %s class does not exist', $class_name));
         }
@@ -313,7 +312,8 @@ class ActiveRecord {
    * @param mysqli_result $record
    * @param boolean $establish_relationships
    */
-  private static function instantiate($record, $establish_relationships = true) {
+  private static function instantiate($record, $establish_relationships = true, $parent_class = null) {
+    // echo get_called_class() . '<br>';
     // Check that $record exists and is an array
     if(!isset($record) && !is_array($record)) {
       throw new \Exception(sprintf('Unable to extract column values from %s', gettype($record)));
@@ -333,7 +333,7 @@ class ActiveRecord {
 
     // Set relationships (has_many, belongs_to) on object
     if($establish_relationships){
-      self::instantiate_relationships($object);
+      self::instantiate_relationships($object, $parent_class, get_called_class());
     }
 
     return $object;
@@ -347,10 +347,10 @@ class ActiveRecord {
    * @param model $object
    * @return void
    */
-  private static function instantiate_relationships($object) {
+  private static function instantiate_relationships($object, $parent_class, $current_class) {
     if(isset(static::$has_many)) {
       if((count(static::$has_many) !== count(static::$has_many, COUNT_RECURSIVE))) {
-        self::add_related_objects($object, static::$has_many, self::HAS_MANY);
+        self::add_related_objects($object, $parent_class, $current_class, static::$has_many, self::HAS_MANY);
       } else {
         throw new \Exception('Has many associations are not declared as arrays');
       }
@@ -358,7 +358,7 @@ class ActiveRecord {
 
     if(isset(static::$has_many_through)) {
       if((count(static::$has_many_through) !== count(static::$has_many_through, COUNT_RECURSIVE))) {
-        self::add_related_objects($object, static::$has_many_through, self::HAS_MANY_THROUGH);
+        self::add_related_objects($object, $parent_class, $current_class, static::$has_many_through, self::HAS_MANY_THROUGH);
       } else {
         throw new \Exception('Has many associations are not declared as arrays');
       }
@@ -366,7 +366,7 @@ class ActiveRecord {
 
     if(isset(static::$belongs_to)) {
       if((count(static::$belongs_to) !== count(static::$belongs_to, COUNT_RECURSIVE))) {
-        self::add_related_objects($object, static::$belongs_to, self::BELONGS_TO);
+        self::add_related_objects($object, $parent_class, $current_class, static::$belongs_to, self::BELONGS_TO);
       } else {
         throw new \Exception('Belongs to associations are not declared as arrays');
       }
@@ -374,7 +374,7 @@ class ActiveRecord {
 
     if(isset(static::$has_one)) {
       if((count(static::$has_one) !== count(static::$has_one, COUNT_RECURSIVE))) {
-        self::add_related_objects($object, static::$has_one, self::HAS_ONE);
+        self::add_related_objects($object, $parent_class, $current_class, static::$has_one, self::HAS_ONE);
       } else {
         throw new \Exception('Has one assosiations are not declared as arrays');
       }
@@ -390,7 +390,7 @@ class ActiveRecord {
    * @param int $relation_type
    * @return void
    */
-  private static function add_related_objects(&$object, $collection, $relation_type) {
+  private static function add_related_objects(&$object, $parent_class, $current_class, $collection, $relation_type) {
     foreach ($collection as $relation) {
       $relation_size = count($relation);
       if($relation_size > 3 && $relation_type !== self::HAS_MANY_THROUGH) {
@@ -402,17 +402,17 @@ class ActiveRecord {
 
       $relation = self::generate_association_info($relation, $relation_size, $relation_type);
 
-      if(self::$owner_class_name === $relation[2]) {
+      if($parent_class === $relation[2]) {
         $establish_relationships = false;
       } else {
-        self::$owner_class_name = get_called_class();
+        $new_parent_class = $current_class;
         $establish_relationships = true;
       }
 
       if($relation_type === self::HAS_MANY) {
         $fk = static::get_primary_key();
         $sql = "SELECT * FROM {$relation[1]} WHERE ". $fk ." = '{$object->get_pk_value()}'";
-        $object->$relation[0] = self::find_by_sql($sql, $relation[2], $establish_relationships);
+        $object->$relation[0] = self::find_by_sql($sql, $relation[2], $establish_relationships, $new_parent_class);
       } else if($relation_type === self::HAS_MANY_THROUGH) {
         $class_name = self::get_table_name_from_class();
         $join_table = $relation_size === 1 ? self::get_join_table_name($class_name, $relation[1]) : $relation[1];
@@ -424,16 +424,16 @@ class ActiveRecord {
         $sql .= "JOIN {$join_table} USING ({$fk}) ";
         $sql .= "JOIN {$class_name} USING ({$pk}) ";
         $sql .= "WHERE {$class_name}.{$pk} = '{$object->get_pk_value()}'";
-        $object->$relation[0] = self::find_by_sql($sql, $relation[2], $establish_relationships);
+        $object->$relation[0] = self::find_by_sql($sql, $relation[2], $establish_relationships, $new_parent_class);
       } else if($relation_type === self::BELONGS_TO) {
         $fk = $relation[2]::get_primary_key();
         $sql = "SELECT * FROM {$relation[1]} WHERE ". $fk ." = '{$object->$fk}'";
-        $result_array = self::find_by_sql($sql, $relation[2], $establish_relationships);
+        $result_array = self::find_by_sql($sql, $relation[2], $establish_relationships, $new_parent_class);
         $object->$relation[0] = !empty($result_array) ? array_shift($result_array) : null;
       } else if($relation_type === self::HAS_ONE) {
         $fk = self::get_primary_key();
         $sql = "SELECT * FROM {$relation[1]} WHERE {$fk} = '{$object->get_pk_value()}'";
-        $result_array = self::find_by_sql($sql, $relation[2], $establish_relationships);
+        $result_array = self::find_by_sql($sql, $relation[2], $establish_relationships, $new_parent_class);
         $object->$relation[0] = !empty($result_array) ? array_shift($result_array) : null;
       }
     }
