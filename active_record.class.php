@@ -364,19 +364,19 @@ class ActiveRecord {
       }
     }
 
-    if(isset(static::$has_one)) {
-      if((count(static::$has_one) !== count(static::$has_one, COUNT_RECURSIVE))) {
-        self::add_related_objects($object, static::$has_one, self::HAS_ONE);
-      } else {
-        throw new \Exception('Has one assosiations are not declared as arrays');
-      }
-    }
-
     if(isset(static::$belongs_to)) {
       if((count(static::$belongs_to) !== count(static::$belongs_to, COUNT_RECURSIVE))) {
         self::add_related_objects($object, static::$belongs_to, self::BELONGS_TO);
       } else {
         throw new \Exception('Belongs to associations are not declared as arrays');
+      }
+    }
+
+    if(isset(static::$has_one)) {
+      if((count(static::$has_one) !== count(static::$has_one, COUNT_RECURSIVE))) {
+        self::add_related_objects($object, static::$has_one, self::HAS_ONE);
+      } else {
+        throw new \Exception('Has one assosiations are not declared as arrays');
       }
     }
   }
@@ -410,28 +410,29 @@ class ActiveRecord {
       }
 
       if($relation_type === self::HAS_MANY) {
-        $sql = "SELECT * FROM {$relation[1]} WHERE ".self::get_table_name() . "_id" ." = '{$object->id}'";
+        $fk = static::get_primary_key();
+        $sql = "SELECT * FROM {$relation[1]} WHERE ". $fk ." = '{$object->get_pk_value()}'";
         $object->$relation[0] = self::find_by_sql($sql, $relation[2], $establish_relationships);
       } else if($relation_type === self::HAS_MANY_THROUGH) {
         $class_name = self::get_table_name_from_class();
         $join_table = $relation_size === 1 ? self::get_join_table_name($class_name, $relation[1]) : $relation[1];
         $end_class  = $relation_size === 1 ? $relation[1] : $relation[3];
-        $fk = $end_class . '_id';
+        $fk = $relation[2]::get_primary_key();
         $pk = self::get_primary_key();
         $sql  = "SELECT {$end_class}.* ";
         $sql .= "FROM {$end_class} ";
         $sql .= "JOIN {$join_table} USING ({$fk}) ";
         $sql .= "JOIN {$class_name} USING ({$pk}) ";
-        $sql .= "WHERE {$class_name}.{$pk} = '{$object->id}'";
+        $sql .= "WHERE {$class_name}.{$pk} = '{$object->get_pk_value()}'";
         $object->$relation[0] = self::find_by_sql($sql, $relation[2], $establish_relationships);
       } else if($relation_type === self::BELONGS_TO) {
-        $fk = $relation[1] . '_id';
-        $sql = "SELECT * FROM {$relation[1]} WHERE ". $relation[1] . "_id" ." = '{$object->$fk}'";
+        $fk = $relation[2]::get_primary_key();
+        $sql = "SELECT * FROM {$relation[1]} WHERE ". $fk ." = '{$object->$fk}'";
         $result_array = self::find_by_sql($sql, $relation[2], $establish_relationships);
         $object->$relation[0] = !empty($result_array) ? array_shift($result_array) : null;
       } else if($relation_type === self::HAS_ONE) {
-        $fk = self::get_table_name_from_class() . '_id';
-        $sql = "SELECT * FROM {$relation[1]} WHERE {$fk} = '{$object->id}'";
+        $fk = self::get_primary_key();
+        $sql = "SELECT * FROM {$relation[1]} WHERE {$fk} = '{$object->get_pk_value()}'";
         $result_array = self::find_by_sql($sql, $relation[2], $establish_relationships);
         $object->$relation[0] = !empty($result_array) ? array_shift($result_array) : null;
       }
@@ -520,6 +521,15 @@ class ActiveRecord {
       $object_array[] = $row['Field'];
     }
     return $object_array;
+  }
+
+  public function get_pk_value() {
+    if(isset($this->id)) {
+      return $this->id;
+    } else {
+      $pk = $this->get_primary_key();
+      return $this->$pk;
+    }
   }
 
   /**
