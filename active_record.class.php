@@ -251,7 +251,7 @@ class ActiveRecord {
     * @return model
     */
     public function build($class_name, $param = null) {
-      $pk = self::get_primary_key();
+      $pk = $this->get_primary_key();
       if(isset($this->$pk)) {
         $pk_value = $this->$pk;
       } else if(isset($this->id)) {

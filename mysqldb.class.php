@@ -9,7 +9,7 @@ class MySQLDB {
 
   public function open_connection($host, $user, $password, $db_name) {
     $this->db = new mysqli($host, $user, $password, $db_name);
-
+    $this->db->set_charset('utf8');
     if($this->db->mysqli_connect_errno) {
       die('Database connection failed: ' .
         $this->db->mysqli_connect_error .
