@@ -123,12 +123,25 @@ class ActiveRecord {
    */
    public function insert() {
      $fields = $field_markers = $types = $values = array();
+      if(isset(static::$has_atached_file)) {
+        $uploaded = FileUploader::upload();
+      }
 
      foreach ($this->get_modifiable_fields() as $column => $value) {
        $fields[] = $column;
        $field_markers[] = '?';
        $types[] = $this->get_data_type($value);
-       $values[] = &$this->{$column};
+       if(isset(static::$has_atached_file) && $column === static::$has_atached_file) {
+         if($uploaded) {
+           $filename = FileUploader::get_file_name();
+           $values[] = &$filename;
+         } else {
+           $empty = '';
+           $values[] = &$empty;
+         }
+       } else {
+         $values[] = &$this->{$column};
+       }
      }
 
      $sql = sprintf("INSERT INTO %s (%s) VALUES (%s)", self::get_table_name(), implode(', ', $fields), implode(', ', $field_markers));
@@ -142,6 +155,7 @@ class ActiveRecord {
      $stmt->execute();
 
      if($stmt->error) {
+       FileUploader::remove_file(FileUploader::get_file_name());
        throw new \Exception($stmt->error."\n\n".$sql);
      }
 
@@ -166,10 +180,27 @@ class ActiveRecord {
 
       $fields = $field_markers = $types = $values = array();
 
+      if(isset(static::$has_atached_file)) {
+        $uploaded = FileUploader::upload();
+        if($uploaded) {
+          $file_field = static::$has_atached_file;
+          FileUploader::remove_file($this->$file_field);
+        }
+      }
+
       foreach ($this->get_modifiable_fields() as $column => $value) {
         $fields[] = sprintf('%s = ?', $column);
         $types[] = $this->get_data_type($value);
-        $values[] = &$this->{$column};
+        if(isset(static::$has_atached_file) && $column === static::$has_atached_file) {
+          if($uploaded) {
+            $filename = FileUploader::get_file_name();
+            $values[] = &$filename;
+          } else {
+            $values[] = &$this->{$column};
+          }
+        } else {
+          $values[] = &$this->{$column};
+        }
       }
       $types[] = 's';
       $values[] = &$this->id;
@@ -239,6 +270,11 @@ class ActiveRecord {
 
        if($stmt->error) {
          throw new \Exception($stmt->error."\n\n".$sql);
+       }
+
+       if(isset(static::$has_atached_file)) {
+         $file_field = static::$has_atached_file;
+         FileUploader::remove_file($this->$file_field);
        }
 
        return true;
@@ -313,7 +349,7 @@ class ActiveRecord {
    * @param boolean $establish_relationships
    */
   private static function instantiate($record, $establish_relationships = true, $parent_class = null, $relation_count = 0) {
-    // echo get_called_class() . '<br>';
+
     // Check that $record exists and is an array
     if(!isset($record) && !is_array($record)) {
       throw new \Exception(sprintf('Unable to extract column values from %s', gettype($record)));
@@ -404,6 +440,7 @@ class ActiveRecord {
 
       if($parent_class === $relation[2]) {
         $establish_relationships = false;
+        $new_parent_class = null;
       } else {
         $new_parent_class = $current_class;
         $establish_relationships = true;
@@ -596,7 +633,7 @@ class ActiveRecord {
     return 's';
   }
 
-  private function get_join_table_name($lhs_table, $rhs_table) {
+  private static function get_join_table_name($lhs_table, $rhs_table) {
     $tables = array($lhs_table, $rhs_table);
     sort($tables);
     return implode('_', $tables);
