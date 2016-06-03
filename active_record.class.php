@@ -653,7 +653,7 @@ class ActiveRecord {
       $key = $value->getName();
       $value = $value->getValue($this);
 
-      if(! is_object($value) && $key !== 'id') {
+      if(! is_object($value) && !is_array($value) && $key !== 'id') {
         $table_fields[$key] =  $value;
       }
     }
