@@ -312,7 +312,7 @@ class ActiveRecord {
 
     if(substr($method_name, 0, 7) === 'find_by') {
       // Extract the field name from the method name
-      $array = split('_', $method_name);
+      $array = explode('_', $method_name);
       array_splice($array, 0, 2);
       $field =  implode('_', $array);
 
@@ -368,7 +368,7 @@ class ActiveRecord {
     }
 
     // Set relationships (has_many, belongs_to) on object
-    if($establish_relationships && $relation_count < 4){
+    if($establish_relationships && $relation_count < 5){
       self::instantiate_relationships($object, $parent_class, get_called_class(), $relation_count);
     }
 
